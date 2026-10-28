@@ -8,7 +8,7 @@ its own can only switch controller LEDs on and off.
 
 ## Install
 
-You need macOS, Traktor Pro 4 (opened at least once), Python 3.9+ and a Push 2.
+You need macOS, Traktor Pro 4 (opened at least once), Python 3.9+ and a Push 2. For the screen: Homebrew (for libusb).
 
 ```bash
 git clone https://github.com/Kimina-Santuri/push2-traktor.git
@@ -51,6 +51,19 @@ C bottom-left, D bottom-right.
 - **Buttons above the screen:** FX1 on + buttons 1–3, FX2 on + buttons 1–3.
 - **Buttons below the screen:** send Deck A–D to FX1 (left four) or FX2 (right four).
 - **Master knob:** browse the track list. **Shift:** folder tree.
+
+### The screen
+
+The Push 2 display shows all four decks (four-deck layout only):
+
+- **Top row:** labels for the buttons above it: FX1 on (with its dry/wet %) and buttons 1–3, then the same for FX2. Lit when on.
+- **Each deck:** its letter in the deck colour, MASTER / SYNC / KEY tags, the BPM (measured from the beat while playing),
+  the loop size (amber while looping), a position bar (flashing red when the track is ending), the four Push cues,
+  stem levels on stem decks (dark when muted) and a 4-beat counter.
+- **Bottom row:** labels for the buttons below it: deck A–D → FX1, then → FX2. Lit when assigned.
+
+Track titles aren't shown: Traktor doesn't send text over MIDI. The screen needs libusb (the installer adds it with
+Homebrew) and Ableton Live closed, since Live takes over the display. `--no-screen` leaves it alone.
 
 ## Advanced layout (`--layout advanced`)
 

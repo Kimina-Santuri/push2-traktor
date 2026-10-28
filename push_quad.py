@@ -20,20 +20,28 @@ import mido
 
 import contract as K
 from push_bridge import (Bridge, PAD0, CC_SHIFT, CC_LOWER, CC_UPPER, CC_ENC, CC_MASTER_ENC,
-                         SYSEX_HDR, DECK_COLORS, STEM_COLORS, FX_COLORS, HOTCUE_COLORS,
+                         SYSEX_HDR, COLORS, DECK_COLORS, STEM_COLORS, FX_COLORS, HOTCUE_COLORS,
                          find_port)
+
+try:                                            # the screen is optional: needs pyusb, Pillow, numpy, libusb
+    import push_display
+except ImportError as e:
+    push_display = None
+    SCREEN_MISSING = str(e)
 
 QUADRANT = [(4, 0), (4, 4), (0, 0), (0, 4)]     # (first row, first column) of deck A-D
 LOOP_PADS = [2, 3, 4, 5]                        # K.LOOP_SIZE positions: 1, 2, 4, 8 beats
 LOOP_PAD_COLORS = ["yellow", "lime", "green", "teal"]
 FX_KNOBS = [(0, 0), (0, 1), (1, 0), (1, 1)]     # encoders 5-8: (unit, 0 = dry/wet / 1 = knob 1)
+LOOP_NAMES = ["1/32", "1/16", "1/8", "1/4", "1/2", "1", "2", "4", "8", "16", "32"]   # Traktor loop size index
 
 
 class QuadBridge(Bridge):
-    def __init__(self, monitor, wanted):
+    def __init__(self, monitor, wanted, no_screen=False):
         super().__init__(None, None, False, monitor)
         self.wanted = wanted
         self.push_name = None
+        self.no_screen = no_screen
         self.resend = []
 
     # ---- Push hot-plug
@@ -215,7 +223,48 @@ class QuadBridge(Bridge):
             else:
                 self.push_out.send(mido.Message("control_change", control=n, value=v))
 
+    # ---- screen
+    def display_view(self):
+        """A snapshot of what the screen shows (push_display.render draws it)."""
+        now = time.monotonic()
+        rgb = lambda name: COLORS[name]
+        with self.lock:
+            fx = []
+            for u in range(2):
+                fx.append({"color": rgb(FX_COLORS[u]), "on": self.get(K.GLOBAL_CH, K.FX_ON[u]) > 0,
+                           "buttons": [self.get(K.GLOBAL_CH, n) > 0 for n in K.FX_BUTTON[u]],
+                           "drywet": self.get(K.GLOBAL_CH, K.FX_DRYWET_CC[u], "cc") / 127})
+            decks = []
+            for d, ch in enumerate(K.DECK_CH):
+                clock = self.clocks[d]
+                _, beat = clock.phase(now)
+                fresh = now - clock.last_beat < 2.0
+                size = self.get(ch, K.LOOP_SIZE_NOW, default=None)
+                pos = self.get(ch, K.SEEK_POS_CC, "cc", default=None)
+                decks.append({
+                    "name": "ABCD"[d], "color": rgb(DECK_COLORS[d]),
+                    "loaded": self.get(ch, K.DECK_LOADED) > 0, "playing": self.get(ch, K.PLAY) > 0,
+                    "master": self.get(ch, K.MASTER) > 0, "sync": self.get(ch, K.SYNC) > 0,
+                    "keylock": self.get(ch, K.KEYLOCK) > 0, "ending": self.get(ch, K.TRACK_END) > 0,
+                    "bpm": 60.0 / clock.period if fresh and clock.count > 2 else None, "beat": beat,
+                    "pos": None if pos is None else pos / 127,
+                    "loop": LOOP_NAMES[size] if size is not None and size < len(LOOP_NAMES) else "",
+                    "in_loop": self.get(ch, K.IN_LOOP) > 0,
+                    "cues": [rgb(HOTCUE_COLORS.get(self.get(ch, K.HOTCUE[c]), "white"))
+                             if self.get(ch, K.HOTCUE[c]) else None for c in range(4)],
+                    "stems": self.get(ch, K.DECK_FLAVOR) == K.FLAVOR_STEM,
+                    "stem_on": [not self.get(ch, K.SLOT_MUTE[s]) for s in range(4)],
+                    "stem_vol": [self.get(ch, K.SLOT_VOLUME_CC[s], "cc", default=127) / 127 for s in range(4)],
+                    "stem_colors": [rgb(c) for c in STEM_COLORS],
+                    "fx": [self.get(ch, K.FX1_ASSIGN) > 0, self.get(ch, K.FX2_ASSIGN) > 0]})
+        return {"now": now, "fx": fx, "decks": decks}
+
     def run(self):
+        if not self.no_screen:
+            if push_display:
+                push_display.Screen(self.display_view).start()
+            else:
+                print("Screen off: %s" % SCREEN_MISSING)
         self.trak_in.callback = self.on_traktor
         print("Quad bridge running on port '%s'. Ctrl+C to quit." % "Push2 Traktor Bridge")
         asked = checked = 0.0
@@ -247,9 +296,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--monitor", action="store_true", help="print feedback from Traktor")
     ap.add_argument("--push", default=None, help="part of the Push port name to use")
+    ap.add_argument("--no-screen", action="store_true", help="leave the Push 2 display alone")
     a = ap.parse_args()
     mido.set_backend("mido.backends.rtmidi")
-    QuadBridge(a.monitor, [a.push] if a.push else ["ableton push 2", "user"]).run()
+    QuadBridge(a.monitor, [a.push] if a.push else ["ableton push 2", "user"], a.no_screen).run()
 
 
 if __name__ == "__main__":

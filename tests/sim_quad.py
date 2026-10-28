@@ -13,7 +13,7 @@ mido.set_backend("mido.backends.rtmidi")
 from_bridge = []
 fake_in = mido.open_input("Fake Push 2 User Port", virtual=True, callback=from_bridge.append)
 fake_out = mido.open_output("Fake Push 2 User Port", virtual=True)
-b = push_quad.QuadBridge(False, ["fake push 2", "user"])
+b = push_quad.QuadBridge(False, ["fake push 2", "user"], no_screen=True)
 threading.Thread(target=b.run, daemon=True).start()
 time.sleep(0.5)
 # fake Traktor

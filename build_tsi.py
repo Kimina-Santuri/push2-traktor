@@ -35,6 +35,7 @@ SLOT_VOL, SLOT_FILTER, SLOT_FILTER_ON = 251, 249, 250
 REMIX_PAGE = 733
 CELL_TRIGGER1, CELL_STATE1 = 601, 665
 DECK_FLAVOR, TRACK_END, BEAT_PHASE, DECK_LOADED = 2302, 520, 513, 2591
+SEEK_POS = 103                     # ids cross-checked with CMDR's KnownCommands.cs
 UNIT_ON, UNIT_KNOB1, UNIT_BUTTON1, UNIT_DRYWET = 369, 366, 370, 365
 BROWSE_LIST, BROWSE_TREE, TREE_EXPAND, BROWSER_VIEW = 3200, 3328, 3329, 4209
 FOCUS, SEND_STATE = 9, 3048
@@ -157,6 +158,8 @@ def build_mappings():
         led(ch, K.TRACK_END, TRACK_END, d, D + " Track end warning")
         led(ch, K.BEAT_PHASE, BEAT_PHASE, d, D + " Beat phase", (-0.5, 0.5), floats=True)
         led(ch, K.DECK_LOADED, DECK_LOADED, d, D + " Deck loaded")
+        M.append(Mapping(cc_name(ch, K.SEEK_POS_CC), True, SEEK_POS, LED, OUTPUT, d, rng=(0.0, 1.0),
+                         floats=True, comment=D + " Play position"))
         btn(ch, K.REMIX_PAGE_DOWN, REMIX_PAGE, DEC, d, D + " Remix page -", None, (0, 3), out=False)
         btn(ch, K.REMIX_PAGE_UP, REMIX_PAGE, INC, d, D + " Remix page +", None, (0, 3), out=False)
         led(ch, K.REMIX_PAGE, REMIX_PAGE, d, D + " Remix page", (0, 3), (0, 3))

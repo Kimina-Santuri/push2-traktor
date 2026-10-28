@@ -35,12 +35,22 @@ LABEL=local.push2-traktor-bridge
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/push2-traktor-bridge.log"
 
+# The Push 2 screen talks USB through libusb; without it the bridge still runs, just without the screen.
+if [ ! -e /opt/homebrew/lib/libusb-1.0.0.dylib ] && [ ! -e /usr/local/lib/libusb-1.0.0.dylib ]; then
+  if command -v brew >/dev/null; then
+    echo "==> Installing libusb (for the Push 2 screen)"
+    brew install libusb || echo "    libusb install failed: the screen will stay off"
+  else
+    echo "    No Homebrew, so no libusb: the Push 2 screen will stay off (everything else works)"
+  fi
+fi
+
 echo "==> Installing to $DEST"
 mkdir -p "$DEST"
 [ -x "$DEST/venv/bin/python" ] || python3 -m venv "$DEST/venv"
 "$DEST/venv/bin/pip" install --quiet --upgrade pip
 "$DEST/venv/bin/pip" install --quiet -r "$REPO/requirements.txt"
-cp "$REPO/push_quad.py" "$REPO/push_bridge.py" "$REPO/contract.py" "$DEST/"
+cp "$REPO/push_quad.py" "$REPO/push_bridge.py" "$REPO/push_display.py" "$REPO/contract.py" "$DEST/"
 
 echo "==> Building Traktor mappings"
 if "$DEST/venv/bin/python" "$REPO/build_tsi.py" && "$DEST/venv/bin/python" "$REPO/build_simple_tsi.py"; then

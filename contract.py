@@ -67,6 +67,7 @@ SLOT_VOLUME_CC = [0, 1, 2, 3]
 SLOT_FILTER_CC = [4, 5, 6, 7]
 DECK_FILTER_CC = 8
 JOG_CC = 9                          # relative 7Fh/01h, straight from a Push encoder
+SEEK_POS_CC = 10                    # feedback: play position 0-127 across the track (for the screen)
 
 # --- global channel -------------------------------------------------------
 FX_ON = [0, 4]                      # unit 1, unit 2

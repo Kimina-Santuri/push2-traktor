@@ -23,6 +23,7 @@ bridge renders colours and animation onto the Push.
 | `contract.py` | The MIDI agreement between the bridges and Traktor. Channels: Ch01–04 decks A–D, Ch05 global, Ch06 free pads, Ch07 user pads, Ch09–12 remix cells. **Single source of truth.** |
 | `build_tsi.py` | Generates `Push2 Bridge.tsi` (≈1,120 mappings) from `contract.py`. Holds the Traktor command IDs. |
 | `push_quad.py` | Four-deck layout: each 4×4 corner of the pads is a deck. Subclasses `Bridge`. Default for `install.sh`. |
+| `push_display.py` | The Push 2 screen over USB (pyusb + libusb): `render(view)` draws 960×160 with Pillow, `encode()` makes the frame, `Screen` thread sends ~16 fps and reconnects. `QuadBridge.display_view()` builds the view. |
 | `push_bridge.py` | 8-column layout with CUES/STEMS/REMIX/USER modes and deck focus. Also holds `Palette`, `BeatClock` and the base `Bridge`. |
 | `build_simple_tsi.py` | `Push2 Simple.tsi`: 2 decks, no script, plain on/off LEDs straight to the Push User Port. |
 | `make_cheatsheet.py` | Draws `docs/cheatsheet.svg` for the four-deck layout. Re-run after layout changes. |
@@ -122,3 +123,22 @@ Run `tests/sim_quad.py` after any change to `push_quad.py`, `push_bridge.py` or 
   confirmed hotcues, Play, Sync and loops respond, then confirmed the solid stem/hotcue/loop layout ("perfect").
   Still on USB power only (colours dim). Installer prints a re-import note; README has an Updating section.
   Committed and pushed to GitHub 2026-10-28.
+
+## 2026-10-28: the Push 2 screen
+
+- User asked for the screen with everything proposed. Track titles aren't possible: Traktor sends no text over MIDI
+  (the Broadcasting/Icecast route was mentioned but not built).
+- `push_display.py`: frame = 16-byte header FF CC AA 88 + 160 lines of 2048 bytes (960 px BGR565 LE, red in the low bits, + 128
+  filler), XOR E7 F3 E7 FF; bulk endpoint 0x01 on interface 0 of 2982:1967. Must be sent continuously (blank after 2 s).
+  **The header must be its own 16-byte transfer and the pixels go in 16 KB transfers**: one long transfer
+  (header + pixels) was accepted without error but the screen stayed black. It works on USB power alone.
+- Data: BPM is measured from the beat-phase clock (60 / period, only while beats are fresh). The play position is a new output:
+  Traktor command 103 "Seek Position" as float 0-1 on per-deck CC 10 (`K.SEEK_POS_CC`); the user must re-import the tsi
+  (1125 mappings now). Everything else comes from state the bridge already had.
+- Command ids can be looked up in CMDR's `cmdr.TsiLib/Commands/Interpretation/KnownCommands.cs` (TakTraum/cmdr on
+  GitHub); it agrees with every id here (100, 513, 2302, 2591, 3048...). Useful ones not used yet: 64 master tempo
+  (40-300 BPM), 123 tempo adjust (-1..1), 19 tempo range (enum 2 %...100 %), 402 key adjust.
+- Installer: installs libusb with Homebrew if missing, copies push_display.py; requirements now include pyusb,
+  Pillow, numpy. sim_quad runs the bridge with no_screen=True so the test never grabs a real display.
+- Verified by the user 2026-10-28 after re-importing the tsi: "it looks really good and responds really well".
+  Committed and pushed.
