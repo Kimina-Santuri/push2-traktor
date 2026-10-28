@@ -35,7 +35,7 @@ def last_led(note):
     return v[-1] if v else None
 ok(last_led(36 + 7*8) == b.pal("cyan", "dim"), "waiting view: deck A corner dim cyan")
 # Traktor answers: deck A playing, hotcue 1 = cue, stem deck, loop size 1 beat
-st = [(0, K.PLAY, 127), (0, K.HOTCUE[0], 1), (0, K.DECK_FLAVOR, 1), (0, K.LOOP_SIZE_NOW, 5),
+st = [(0, K.PLAY, 127), (0, K.HOTCUE[0], 1), (0, K.DECK_FLAVOR, K.FLAVOR_STEM), (0, K.LOOP_SIZE_NOW, 5),
       (3, K.SYNC, 127), (0, K.SLOT_MUTE[1], 127)]
 for ch, n, v in st: tk_out.send(mido.Message("note_on", channel=ch, note=n, velocity=v))
 tk_out.send(mido.Message("note_on", channel=K.GLOBAL_CH, note=K.FX_ON[0], velocity=127))
@@ -43,10 +43,10 @@ time.sleep(0.3)
 ok(last_led(36 + 4*8 + 0) in (b.pal("green","full"), b.pal("green","mid")), "A play pad green (pulsing)")
 ok(last_led(36 + 6*8 + 0) == b.pal("blue","full"), "A hotcue 1 blue")
 ok(last_led(36 + 7*8 + 0) == b.pal("orange","full"), "A drums stem orange")
-ok(last_led(36 + 7*8 + 1) == b.pal("red","dim"), "A bass stem muted red")
+ok(last_led(36 + 7*8 + 1) == 0, "A bass stem muted -> off")
 ok(last_led(36 + 5*8 + 0) == b.pal("yellow","mid"), "A loop 1 beat selected")
 ok(last_led(36 + 0*8 + 6) == b.pal("blue","full"), "D sync blue")
-ok(last_led(36 + 7*8 + 4) == b.pal("white","dim"), "B stems grey (not a stem deck)")
+ok(last_led(36 + 7*8 + 4) == 0, "B stems off (not a stem deck)")
 cc = lambda n: ([m.value for m in from_bridge if m.type=="control_change" and m.control==n] or [None])[-1]
 ok(cc(102) == b.pal("teal","full"), "FX1 on button lit")
 # presses

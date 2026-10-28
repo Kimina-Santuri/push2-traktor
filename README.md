@@ -41,9 +41,9 @@ C bottom-left, D bottom-right.
 
 | Row in each corner | Pads | Shift + pad |
 |---|---|---|
-| 1 Stems | Drums, Bass, Other, Vocals: tap to mute (dim red). Grey on non-stem decks. | Stem FX send |
-| 2 Hotcues | Grey = empty, tap to set. Lit in the cue-type colour. | Delete |
-| 3 Loops | 1, 2, 4, 8 beats. The current size pulses while looping; tap it again to exit. | |
+| 1 Stems | Drums, Bass, Other, Vocals: lit while the stem plays, off when muted (tap to toggle). Off on non-stem decks. | Stem FX send |
+| 2 Hotcues | Grey = empty, tap to set. Solid in the cue-type colour once set. | Delete |
+| 3 Loops | 1, 2, 4, 8 beats. The current size is half-lit, fully lit while looping; tap it again to exit. | |
 | 4 Transport | Play (pulses green on the beat, flashes red at the end), Cue (CDJ style), Sync, Load | Load as stems |
 
 - **Knobs 1–4:** jog for Decks A–D. Touch and turn to scratch; turn without touching to nudge.
@@ -85,8 +85,23 @@ Two decks, plain on/off lights, nothing running in the background. Press **User*
 import `Push2 Simple.tsi` and set both ports to **Ableton Push 2 (User Port)**. Lights from
 Traktor straight to the Push weren't confirmed in testing; use the bridge for reliable colours.
 
+## Updating
+
+```bash
+cd push2-traktor
+git pull
+./install.sh
+```
+
+Then in Traktor: Preferences → Controller Manager → select **Push 2 Bridge (smart LEDs)** → **Delete**, and
+**Import TSI** → `Push2 Bridge.tsi` from the Desktop again. Importing over the old device doesn't replace it.
+The October 2026 update fixed pads that lit only white or not at all (cue, stem, Play, Cue and Sync lights), so
+anyone who installed before 28 October needs to re-import.
+
 ## Troubleshooting
 
+- **Pads light only white, or only the Load pad lights:** an older `Push2 Bridge.tsi` is imported. See Updating.
+- **Pads very dim:** the Push 2 is running on USB power alone, which makes it hold its lights down. Use its power adapter.
 - **Pads stay dark:** the script isn't running or the Push isn't connected. Check
   `~/Library/Logs/push2-traktor-bridge.log`.
 - **Corners stay dim:** Traktor isn't talking to the script. Check that the In-Port and Out-Port are **Push2 Traktor Bridge**.

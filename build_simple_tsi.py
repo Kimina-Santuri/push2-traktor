@@ -75,7 +75,7 @@ def build():
                 comment="%s Hotcue %d" % (D, i + 1))
             add(midi, 2331, BUTTON, DIRECT, deck, value=i, rng=(-1, 7), cond=1,
                 comment="%s Delete hotcue %d (Shift)" % (D, i + 1))
-            led(midi, 2333 + i, deck, BLUE, rng=(-1, 0), comment="%s Hotcue %d LED" % (D, i + 1))
+            led(midi, 2333 + i, deck, BLUE, rng=(0, 5), comment="%s Hotcue %d LED" % (D, i + 1))
         # deck button for effects: send this deck to its FX unit
         fx_assign = 321 + deck                             # "FX Unit 1 On" / "FX Unit 2 On"
         add(pad(3, c0), fx_assign, BUTTON, TOGGLE, deck, comment="%s to FX unit %d" % (D, deck + 1))
@@ -112,16 +112,12 @@ def build():
 
 def build_tsi(mappings):
     ref = load_reference()
-    names = []
-    for m in mappings:
-        if m[0] not in names:
-            names.append(m[0])
-    bid = {n: i + 1 for i, n in enumerate(names)}
-    cmai = b"".join(frame("CMAI", struct.pack(">3I", bid[n], int(o), c) + frame("CMAD", d))
-                    for n, o, c, d in mappings)
+    # One binding per mapping: Traktor drops all but the first mapping of a shared binding (see build_tsi.py).
+    cmai = b"".join(frame("CMAI", struct.pack(">3I", i + 1, int(o), c) + frame("CMAD", d))
+                    for i, (n, o, c, d) in enumerate(mappings))
     cmas = frame("CMAS", struct.pack(">I", len(mappings)) + cmai)
-    dcbm = frame("DCBM", struct.pack(">I", len(names)) + b"".join(
-        frame("DCBM", struct.pack(">I", bid[n]) + wstr(n)) for n in names))
+    dcbm = frame("DCBM", struct.pack(">I", len(mappings)) + b"".join(
+        frame("DCBM", struct.pack(">I", i + 1) + wstr(m[0])) for i, m in enumerate(mappings)))
     ddat = (frame("DDIF", struct.pack(">I", 0)) + ref["DDIV"]
             + frame("DDIC", wstr("Push 2 Simple (2 decks)"))
             + frame("DDPT", wstr(PORT) + wstr(PORT)) + ref["DDDC"]

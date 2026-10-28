@@ -62,7 +62,11 @@ Run `tests/sim_quad.py` after any change to `push_quad.py`, `push_bridge.py` or 
   4-char tag + big-endian uint32 size. `DIOM > DIOI, DEVS > DEVI("Generic MIDI") > DDAT >
   DDIF, DDIV, DDIC (name), DDPT (in/out port), DDDC (address lists), DDCB > CMAS > CMAI > CMAD, DCBM, DVST`.
 - `CMAI` = binding id, 0 in / 1 out, command id. `DCBM` maps binding id → `"Ch01.Note.C2"` / `"Ch01.CC.071"`
-  (note 36 = C2).
+  (note 36 = C2). **Every CMAI needs its own binding id**, even on a shared MIDI address: Traktor keeps only the
+  first mapping of a shared binding and silently drops the rest.
+- Output (LED) CMAD tail: controller range, MIDI range, invert, **blend**. With blend off, Traktor sends MIDI max while
+  the value is inside the controller range and min otherwise; numeric outputs (hotcue type, deck flavor, loop size)
+  need blend on. Deck flavor values: 0 track, 1 remix, 2 stem, 3 live input.
 - `CMAD` = 12 int header (version 4, control type 0 button / 1 fader / 2 encoder / 0xFFFF LED,
   interaction 0 trigger / 1 toggle / 2 hold / 3 direct / 4 relative / 5 inc / 6 dec / 8 output,
   assignment (deck/unit, -1 device target; stem slot = deck*4+slot), …, sensitivity float, …,
@@ -87,3 +91,34 @@ Run `tests/sim_quad.py` after any change to `push_quad.py`, `push_bridge.py` or 
 - Never edit `Traktor Settings.tsi` while Traktor is running; it overwrites it on quit.
 - Hardware feedback from Traktor directly to the Push User Port (the simple .tsi) has not
   been confirmed to light the pads; the bridge path is the supported one.
+
+## 2026-10-27: pads dim / white on USB power
+
+- User report: the pads light but show no colour, or are just dim, and look white in shade. The Push was running on
+  USB power only (no adapter).
+- Checked: Traktor's saved settings have "Push 2 Bridge (smart LEDs)" on ports Push2 Traktor Bridge. The installed
+  bridge matched the repo. The palette sysex matches the Push 2 layout (`03 idx` + r/g/b/w as 7-bit lsb, msb, then
+  `05` to apply). The log shows the Push reconnecting several times.
+- Changed: `QuadBridge.setup()` sends User mode, palette and LED brightness, and is resent 1.5 s and 5 s after every
+  connect, because a Push that is still starting up can miss the palette and stay on its built-in colours.
+  `Palette.sysex()` now ends with `06 127` (LED brightness: full), which also affects push_bridge.py.
+  sim_quad.py: 21/21 pass. Installed to `~/Library/Application Support/Push2TraktorBridge` and restarted.
+- NOT verified: on hardware with the power adapter. On USB power alone the Push 2 limits its LED brightness itself;
+  "dim" (8 %) pads may then be close to invisible.
+
+## 2026-10-28: mapping fixes found with --monitor on real hardware
+
+- **Shared bindings were dropped.** build_tsi gave mappings on the same MIDI address one binding id. Traktor 4.4.2
+  keeps only the first CMAI per binding (its saved copy had 644 of 1121, with 45 of 474 outputs), so the pad LEDs,
+  Play/Cue/Sync LEDs and beatjump size/move steps were lost. Fix: one binding (and DCBM entry) per mapping, in
+  build_tsi.py and build_simple_tsi.py. (Factory .tsi files seem to share ids only because they hold several devices.)
+- **Numeric outputs need Blend.** CMAD tail field 13 on an output is Blend. With it off, Traktor sends MIDI max when the
+  value is inside the controller range and min otherwise. So every hotcue read 7 and deck flavor read 3, and the
+  bridge drew white. Fix: Blend on for outputs whose range isn't (0, 1). Float outputs already had it.
+- **Deck flavor is 0 track, 1 remix, 2 stem, 3 live** (was assumed 1 = stem). `K.FLAVOR_STEM/FLAVOR_REMIX`.
+- **User's layout requests (push_quad.py):** a stem pad is solid in its colour while playing and off when muted or on a non-stem
+  deck. Hotcues are solid once set. Loops are solid: selected size mid, full while looping. Play still pulses (user happy). README and
+  cheat sheet updated. sim_quad 21/21. The user re-imported the rebuilt Push2 Bridge.tsi (copied to the Desktop) and
+  confirmed hotcues, Play, Sync and loops respond, then confirmed the solid stem/hotcue/loop layout ("perfect").
+  Still on USB power only (colours dim). Installer prints a re-import note; README has an Updating section.
+  Committed and pushed to GitHub 2026-10-28.

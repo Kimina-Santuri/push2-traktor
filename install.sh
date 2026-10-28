@@ -88,6 +88,7 @@ Done. Next:
   1. Quit Ableton Live and plug in the Push 2.
   2. Traktor > Preferences > Controller Manager > Import TSI > Push2 Bridge.tsi (Desktop).
      In-Port and Out-Port must both be "Push2 Traktor Bridge".
+     Updating? Delete the old "Push 2 Bridge (smart LEDs)" device first, then import the new file.
   3. Cheat sheet: $REPO/docs/cheatsheet.svg
 Log: $LOG    Remove everything: ./uninstall.sh
 EOF

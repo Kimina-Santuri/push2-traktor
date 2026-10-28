@@ -34,6 +34,7 @@ class QuadBridge(Bridge):
         super().__init__(None, None, False, monitor)
         self.wanted = wanted
         self.push_name = None
+        self.resend = []
 
     # ---- Push hot-plug
     def connect(self):
@@ -52,11 +53,19 @@ class QuadBridge(Bridge):
             self.push_out = mido.open_output(pout)
             self.push_in = mido.open_input(pin, callback=self.on_push)
             self.push_name = pin
-            self.sent = {}
-            self.push_out.send(mido.Message("sysex", data=SYSEX_HDR + [0x0A, 0x01]))  # User mode
-            for m in self.pal.sysex():
-                self.push_out.send(m)
+            self.setup()
+            # A Push that has just been plugged in (or browned out on USB power) can still be starting up and miss
+            # the palette, which leaves the pads on its built-in colours: send it again a little later.
+            now = time.monotonic()
+            self.resend = [now + 1.5, now + 5]
             print("Push: " + pin)
+
+    def setup(self):
+        """User mode, our palette and full brightness, then redraw everything."""
+        self.sent = {}
+        self.push_out.send(mido.Message("sysex", data=SYSEX_HDR + [0x0A, 0x01]))  # User mode
+        for m in self.pal.sysex():
+            self.push_out.send(m)
 
     # ---- Push -> Traktor
     def on_push(self, msg):
@@ -152,20 +161,18 @@ class QuadBridge(Bridge):
             else:
                 playing = self.get(ch, K.PLAY) > 0
                 ending = self.get(ch, K.TRACK_END) > 0
-                stems = self.get(ch, K.DECK_FLAVOR) == 1
+                stems = self.get(ch, K.DECK_FLAVOR) == K.FLAVOR_STEM
                 for c in range(4):
-                    if not stems:
-                        pads[(3, c)] = p("white", "dim")
-                    elif self.get(ch, K.SLOT_MUTE[c]):
-                        pads[(3, c)] = p("red", "dim")
-                    else:
-                        fx = self.get(ch, K.SLOT_FX[c]) > 0
-                        pads[(3, c)] = p(STEM_COLORS[c], pulse if fx else "full")
+                    # stem row: solid colour while the stem plays, off when muted or on a non-stem deck
+                    on = stems and not self.get(ch, K.SLOT_MUTE[c])
+                    pads[(3, c)] = p(STEM_COLORS[c], "full") if on else 0
+                    # hotcues: solid in the cue-type colour once set
                     t = self.get(ch, K.HOTCUE[c])
-                    pads[(2, c)] = p(HOTCUE_COLORS.get(t, "white"), "full" if t else "dim")
+                    pads[(2, c)] = p(HOTCUE_COLORS.get(t, "white"), "full") if t else p("white", "dim")
+                    # loops: solid; the active loop full, the selected size mid
                     in_loop = self.get(ch, K.IN_LOOP) > 0
                     current = self.get(ch, K.LOOP_SIZE_NOW, default=None) == K.LOOP_SIZE_INDEX[LOOP_PADS[c]]
-                    lvl = (pulse if in_loop else "mid") if current else "dim"
+                    lvl = ("full" if in_loop else "mid") if current else "dim"
                     pads[(1, c)] = p(LOOP_PAD_COLORS[c], lvl)
                 if ending and playing:
                     pads[(0, 0)] = p("red", "full" if blink else "dim")
@@ -221,6 +228,9 @@ class QuadBridge(Bridge):
                         self.connect()
                     except Exception as e:           # a half-enumerated USB device; try again
                         print("Push connect failed: %s" % e)
+                if self.push_out and self.resend and now >= self.resend[0]:
+                    self.resend.pop(0)
+                    self.setup()
                 if not self.state and now - asked > 2:
                     self.press(K.GLOBAL_CH, K.SEND_STATE)
                     asked = now

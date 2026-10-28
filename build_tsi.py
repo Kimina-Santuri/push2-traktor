@@ -83,7 +83,10 @@ class Mapping:
             res = [1, 2, fbits(0.0625)]
         else:
             rng = [1, lo, 1, hi]
-            res = [int(has_val or self.mode in (INC, DEC, RELATIVE)), 1, 1]
+            # Second field is "Blend" on an output: off, Traktor sends only MIDI max/min for "value in range or not",
+            # so a numeric output (hotcue type, deck flavor, loop size...) needs it on to send the value itself.
+            blend = self.mode == OUTPUT and tuple(self.rng) != (0, 1)
+            res = [int(has_val or blend or self.mode in (INC, DEC, RELATIVE)), 1, 1]
         tail = [0, 0, 0, 0, 0, 0] + rng + list(self.midi_rng) + [0] + res + [0]
         return head + wstr(self.comment) + struct.pack(">%di" % len(tail), *tail)
 
@@ -212,18 +215,14 @@ def load_reference():
 
 def build_tsi(mappings):
     ref = load_reference()
-    names = []
-    for m in mappings:
-        if m.midi not in names:
-            names.append(m.midi)
-    bind_id = {n: i + 1 for i, n in enumerate(names)}
-
+    # One binding per mapping, even when several share a MIDI address (a pad's press and its LED, the three
+    # steps of a beatjump). Traktor keeps only the first mapping of a shared binding and drops the rest.
     cmai = b"".join(
-        frame("CMAI", struct.pack(">3I", bind_id[m.midi], int(m.out), m.cmd) + frame("CMAD", m.cmad()))
-        for m in mappings)
+        frame("CMAI", struct.pack(">3I", i + 1, int(m.out), m.cmd) + frame("CMAD", m.cmad()))
+        for i, m in enumerate(mappings))
     cmas = frame("CMAS", struct.pack(">I", len(mappings)) + cmai)
-    dcbm = frame("DCBM", struct.pack(">I", len(names)) + b"".join(
-        frame("DCBM", struct.pack(">I", bind_id[n]) + wstr(n)) for n in names))
+    dcbm = frame("DCBM", struct.pack(">I", len(mappings)) + b"".join(
+        frame("DCBM", struct.pack(">I", i + 1) + wstr(m.midi)) for i, m in enumerate(mappings)))
     ddat = (frame("DDIF", struct.pack(">I", 0))          # device target: Focus
             + ref["DDIV"]
             + frame("DDIC", wstr("Push 2 Bridge (smart LEDs)"))

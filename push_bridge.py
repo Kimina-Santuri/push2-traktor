@@ -71,6 +71,7 @@ class Palette:
                 data += [c & 0x7F, c >> 7]
             msgs.append(mido.Message("sysex", data=SYSEX_HDR + data))
         msgs.append(mido.Message("sysex", data=SYSEX_HDR + [0x05]))   # reapply palette
+        msgs.append(mido.Message("sysex", data=SYSEX_HDR + [0x06, 127]))   # LED brightness: full
         return msgs
 
     def __call__(self, name, level="full"):
@@ -250,7 +251,7 @@ class Bridge:
             self.press(K.GLOBAL_CH, K.FOCUS[self.deck])
             flavor = self.get(K.DECK_CH[self.deck], K.DECK_FLAVOR)  # jump to the deck's natural mode
             if self.mode != "USER":
-                self.mode = {1: "STEMS", 2: "REMIX"}.get(flavor, "CUES")
+                self.mode = {K.FLAVOR_STEM: "STEMS", K.FLAVOR_REMIX: "REMIX"}.get(flavor, "CUES")
         elif cc in CC_UPPER and down:
             i = cc - CC_UPPER[0]
             unit, b = divmod(i, 4)
