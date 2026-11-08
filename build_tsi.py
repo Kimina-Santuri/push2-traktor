@@ -28,6 +28,8 @@ LOOP_SET, LOOP_SIZE_SEL, LOOP_ACTIVE, LOOP_IN, LOOP_OUT, IN_LOOP = 2317, 2196, 2
 MOVE, MOVE_SIZE, MOVE_MODE = 2351, 2372, 2391
 CUE_JUMP, CUE_STORE, CUE_DEL_CUR = 2306, 2308, 2309
 FX_UNIT1_ON, FX_UNIT2_ON = 321, 322
+FX_UNIT_ON = [321, 322, 338, 339]   # Mixer: deck to FX unit 1-4
+FX_MODE = 2301                      # FX Unit Mode Selector: 0 Group, 1 Single
 LOAD_TRACK, LOAD_STEMS = 3076, 3087
 FILTER_ON, FILTER = 319, 320
 SLOT_MUTE, SLOT_FX, SLOT_STOP, SLOT_STATE = 259, 239, 236, 247
@@ -36,6 +38,7 @@ REMIX_PAGE = 733
 CELL_TRIGGER1, CELL_STATE1 = 601, 665
 DECK_FLAVOR, TRACK_END, BEAT_PHASE, DECK_LOADED = 2302, 520, 513, 2591
 SEEK_POS = 103                     # ids cross-checked with CMDR's KnownCommands.cs
+TEMPO_ADJ, TEMPO_RANGE, PHASE, KEY_ADJ, BROADCAST = 123, 19, 512, 402, 2057
 UNIT_ON, UNIT_KNOB1, UNIT_BUTTON1, UNIT_DRYWET = 369, 366, 370, 365
 BROWSE_LIST, BROWSE_TREE, TREE_EXPAND, BROWSER_VIEW = 3200, 3328, 3329, 4209
 FOCUS, SEND_STATE = 9, 3048
@@ -146,6 +149,10 @@ def build_mappings():
         btn(ch, K.CUE_DELETE_CURRENT, CUE_DEL_CUR, TRIGGER, d, D + " Delete current hotcue", out=False)
         btn(ch, K.FX1_ASSIGN, FX_UNIT1_ON, TOGGLE, d, D + " FX unit 1 assign")
         btn(ch, K.FX2_ASSIGN, FX_UNIT2_ON, TOGGLE, d, D + " FX unit 2 assign")
+        for u in range(4):
+            btn(ch, K.FX_UNIT_ASSIGN_ON[u], FX_UNIT_ON[u], DIRECT, d, "%s to FX unit %d" % (D, u + 1), 1, out=False)
+            btn(ch, K.FX_UNIT_ASSIGN_OFF[u], FX_UNIT_ON[u], DIRECT, d, "%s off FX unit %d" % (D, u + 1), 0,
+                out=False)
         btn(ch, K.LOAD_TRACK, LOAD_TRACK, TRIGGER, d, D + " Load selected", out=False)
         btn(ch, K.LOAD_STEMS, LOAD_STEMS, TRIGGER, d, D + " Load as stems", out=False)
         btn(ch, K.FILTER_ON, FILTER_ON, TOGGLE, d, D + " Filter on")
@@ -160,6 +167,12 @@ def build_mappings():
         led(ch, K.DECK_LOADED, DECK_LOADED, d, D + " Deck loaded")
         M.append(Mapping(cc_name(ch, K.SEEK_POS_CC), True, SEEK_POS, LED, OUTPUT, d, rng=(0.0, 1.0),
                          floats=True, comment=D + " Play position"))
+        for cc, cmd, rng, name in ((K.TEMPO_ADJ_CC, TEMPO_ADJ, (-1.0, 1.0), "Tempo fader"),
+                                   (K.PHASE_CC, PHASE, (-0.5, 0.5), "Phase to master"),
+                                   (K.KEY_ADJ_CC, KEY_ADJ, (-1.0, 1.0), "Key adjust")):
+            M.append(Mapping(cc_name(ch, cc), True, cmd, LED, OUTPUT, d, rng=rng, floats=True,
+                             comment="%s %s" % (D, name)))
+        led(ch, K.TEMPO_RANGE, TEMPO_RANGE, d, D + " Tempo range", (0, 13), (0, 13))
         btn(ch, K.REMIX_PAGE_DOWN, REMIX_PAGE, DEC, d, D + " Remix page -", None, (0, 3), out=False)
         btn(ch, K.REMIX_PAGE_UP, REMIX_PAGE, INC, d, D + " Remix page +", None, (0, 3), out=False)
         led(ch, K.REMIX_PAGE, REMIX_PAGE, d, D + " Remix page", (0, 3), (0, 3))
@@ -188,6 +201,12 @@ def build_mappings():
             btn(g, K.FX_BUTTON[u][b], UNIT_BUTTON1 + b, TOGGLE, u, "FX%d button %d" % (u + 1, b + 1))
             fader(g, K.FX_KNOB_CC[u][b], UNIT_KNOB1 + b, u, "FX%d knob %d" % (u + 1, b + 1))
         fader(g, K.FX_DRYWET_CC[u], UNIT_DRYWET, u, "FX%d dry/wet" % (u + 1))
+    for u in range(4):
+        btn(g, K.FX_UNIT_SET_ON[u], UNIT_ON, DIRECT, u, "FX%d unit on" % (u + 1), 1, out=False)
+        btn(g, K.FX_UNIT_GROUP[u], FX_MODE, DIRECT, u, "FX%d group mode" % (u + 1), 0, out=False)
+        for b in range(3):
+            btn(g, K.FX_EFFECT[u][b], UNIT_BUTTON1 + b, TOGGLE, u, "FX%d effect %d on" % (u + 1, b + 1))
+        fader(g, K.FX_UNIT_DRYWET_CC[u], UNIT_DRYWET, u, "FX%d dry/wet (deck %s)" % (u + 1, "ABCD"[u]))
     btn(g, K.BROWSE_UP, BROWSE_LIST, DEC, 0, "Browser up", None, (-128, 128), out=False)
     btn(g, K.BROWSE_DOWN, BROWSE_LIST, INC, 0, "Browser down", None, (-128, 128), out=False)
     btn(g, K.TREE_UP, BROWSE_TREE, DEC, 0, "Tree up", None, (-128, 128), out=False)
@@ -198,6 +217,7 @@ def build_mappings():
     for d in range(4):
         btn(g, K.FOCUS[d], FOCUS, DIRECT, 0, "Focus deck " + "ABCD"[d], d, (0, 3), out=False)
     led(g, K.FOCUS_NOW, FOCUS, 0, "Focused deck", (0, 3), (0, 3))
+    btn(g, K.BROADCAST, BROADCAST, DIRECT, 0, "Broadcasting on (track titles)", 1, (0, 1))
     return M
 
 

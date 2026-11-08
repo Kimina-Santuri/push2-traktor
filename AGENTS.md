@@ -142,3 +142,44 @@ Run `tests/sim_quad.py` after any change to `push_quad.py`, `push_bridge.py` or 
   Pillow, numpy. sim_quad runs the bridge with no_screen=True so the test never grabs a real display.
 - Verified by the user 2026-10-28 after re-importing the tsi: "it looks really good and responds really well".
   Committed and pushed.
+
+## 2026-10-29: mappings folder
+
+- `install.sh` copies the .tsi files to `~/Desktop/Traktor & Push 2/` when that folder exists (the user's Mac), else the
+  Desktop. Syntax-checked with `bash -n`; not rerun.
+
+## 2026-11-02: monochrome screen (user, after the first gig: "the labels should've been more prominent, the loop and cues as well, the bpm title could be smaller and if possible a monochrome display with a white background")
+
+- `push_display.py` redrawn black on white: button strips in 14 px bold (solid black = on), loop size in a large box
+  (solid while the loop is active), hot cues as four named boxes SONG / BREAK / DROP / OUTRO (`CUE_NAMES`, the
+  dj-tools edit layout; solid = set), BPM moved small into the deck header, stems as black level bars, phase meter and
+  beat-in-bar as small black blocks under the position bar. Deck/FX/cue colours are no longer drawn.
+- Verified: a rendered preview with a made-up four-deck state; `tests/sim_quad.py` passes; reinstalled with
+  `./install.sh` (bridge restarted). Previous version: git HEAD plus the uncommitted 2026-10-29/30 changes, copy in the
+  session scratchpad only.
+- NOT verified: on the Push hardware (it was unplugged when installed). Not committed.
+
+## 2026-11-02: FX per deck (user: "have the fx rethought or just straight forward, filter, delay etc on track a, b or c"; chose Delay/Reverb/Flanger and jog on Shift + knob)
+
+- Each deck owns two knobs and four buttons, in its quarter of the screen: knob 2d+1 = deck filter (from the centre),
+  knob 2d+2 = FX amount (dry/wet of FX unit d+1); upper buttons = Delay, Reverb; lower buttons = Flanger, Filter on.
+  Jog moved to Shift + the deck's left knob; touching it scratches only with Shift (`scratching` set in push_quad).
+- FX unit N belongs to deck N: once Traktor's state arrives the bridge sets each unit to Group mode (command 2301,
+  value 0 = Group per CMDR's FXUnitMode), switches it on, and routes deck N to unit N only (Mixer FX Unit 1-4 On:
+  321, 322, 338, 339). Contract: `FX_UNIT_ASSIGN_ON/OFF` (deck notes 74-81), `FX_UNIT_SET_ON`, `FX_UNIT_GROUP`,
+  `FX_EFFECT` (global notes 32-51), `FX_UNIT_DRYWET_CC` (global CC 16-19). The old 2-unit FX mappings are still in the
+  tsi (push_bridge.py / Push2 Simple use them). Effects themselves can't be chosen from a mapping (the selector value
+  is an index into the user's own effect pre-selection, see CMDR's EffectIdentification), so the user picks Delay,
+  Reverb, Flanger in each unit once; Traktor remembers.
+- Screen: strips read "A DELAY" ... "A FILTER"; the deck panel shows "FX 45%" and "LP 30" / "HP 50" by the loop box;
+  pitch and key moved to the title line.
+- Verified: tests/sim_quad.py (new checks for knobs, buttons, Shift-jog, routing, Group mode) all pass; rendered
+  preview; Push2 Bridge.tsi rebuilt (1215 mappings) and installed. NOT verified: in Traktor (needs tsi re-import, 4 FX
+  units in Preferences, effects picked) and on the hardware; FX unit assignment ids 2/3 for units 3/4 assumed by
+  analogy with 0/1. Cheat sheet (make_cheatsheet.py) not yet updated. Not committed.
+
+## 2026-11-08: committed and pushed (user's request)
+
+- The 2026-11-02 FX-per-deck and monochrome screen work above, plus `now_playing.py`, pushed at the user's request ("update everything on the github"). Before pushing, `tests/sim_quad.py` passed all 30 checks.
+- `now_playing.py` (not noted before): track titles via Traktor's Broadcasting. A stand-in Icecast server on 127.0.0.1:8000 (mount /traktor) keeps only the stream's track tags and drops the audio; `push_quad.py` starts it and shows titles per deck. Traktor setup is in the module's docstring. Not verified in Traktor or on the hardware.
+- Still not verified: everything marked NOT verified in the FX entry (tsi re-import, 4 FX units, hardware), and the cheat sheet hasn't been updated for the per-deck FX.

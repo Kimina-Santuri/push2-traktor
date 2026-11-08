@@ -29,19 +29,37 @@ except ImportError as e:
     push_display = None
     SCREEN_MISSING = str(e)
 
+import now_playing
+
 QUADRANT = [(4, 0), (4, 4), (0, 0), (0, 4)]     # (first row, first column) of deck A-D
 LOOP_PADS = [2, 3, 4, 5]                        # K.LOOP_SIZE positions: 1, 2, 4, 8 beats
 LOOP_PAD_COLORS = ["yellow", "lime", "green", "teal"]
-FX_KNOBS = [(0, 0), (0, 1), (1, 0), (1, 1)]     # encoders 5-8: (unit, 0 = dry/wet / 1 = knob 1)
+# FX per deck: each deck has two knobs (Filter, FX amount), two buttons above the screen (Delay, Reverb) and two
+# below (Flanger, Filter on). FX unit N is deck N's, effects 1-3 = Delay, Reverb, Flanger.
+FX_NAMES = ["DELAY", "REVERB", "FLANGER"]
 LOOP_NAMES = ["1/32", "1/16", "1/8", "1/4", "1/2", "1", "2", "4", "8", "16", "32"]   # Traktor loop size index
 
 
+def centered(v, half):
+    """A 0-127 feedback value for a -half..half range back to that range (63/64 = exactly 0)."""
+    if v is None:
+        return None
+    return 0.0 if v in (63, 64) else (v - 63.5) / 63.5 * half
+
+
 class QuadBridge(Bridge):
-    def __init__(self, monitor, wanted, no_screen=False):
+    def __init__(self, monitor, wanted, no_screen=False, no_titles=False):
         super().__init__(None, None, False, monitor)
         self.wanted = wanted
         self.push_name = None
         self.no_screen = no_screen
+        self.no_titles = no_titles
+        self.titles = [""] * 4        # per deck, from Traktor's broadcast tags (now_playing.py)
+        self.started = [0.0] * 4      # when each deck last started playing
+        self.broadcast_asked = False
+        self.fx_set = False
+        self.scratching = set()                       # decks whose jog knob is touched with Shift
+        self.state_since = 0.0
         self.resend = []
 
     # ---- Push hot-plug
@@ -77,9 +95,16 @@ class QuadBridge(Bridge):
 
     # ---- Push -> Traktor
     def on_push(self, msg):
-        if msg.type in ("note_on", "note_off") and msg.note < 4:   # touching encoders 1-4 = scratch
+        if msg.type in ("note_on", "note_off") and msg.note < 8:   # encoder touch: Shift + a deck's left knob = scratch
+            d, k = divmod(msg.note, 2)
+            down = msg.type == "note_on" and msg.velocity > 0
             with self.lock:
-                self.tap(K.DECK_CH[msg.note], K.JOG_TOUCH, msg.type == "note_on" and msg.velocity > 0)
+                if k == 0 and down and self.shift:
+                    self.scratching.add(d)
+                    self.tap(K.DECK_CH[d], K.JOG_TOUCH, True)
+                elif k == 0 and not down and d in self.scratching:
+                    self.scratching.discard(d)
+                    self.tap(K.DECK_CH[d], K.JOG_TOUCH, False)
             return
         if msg.type == "pitchwheel":
             return
@@ -114,17 +139,18 @@ class QuadBridge(Bridge):
                 self.press(ch, K.SYNC)
             elif c == 3 and down:
                 self.press(ch, K.LOAD_STEMS if self.shift else K.LOAD_TRACK)
+                self.titles[d] = ""
 
     def button(self, cc, value):
         down = value > 0
         if cc == CC_SHIFT:
             self.shift = down
-        elif cc in CC_LOWER and down:                        # FX1 for A-D, then FX2 for A-D
-            unit, d = divmod(cc - CC_LOWER[0], 4)
-            self.press(K.DECK_CH[d], K.FX2_ASSIGN if unit else K.FX1_ASSIGN)
-        elif cc in CC_UPPER and down:
-            unit, b = divmod(cc - CC_UPPER[0], 4)
-            self.press(K.GLOBAL_CH, K.FX_ON[unit] if b == 0 else K.FX_BUTTON[unit][b - 1])
+        elif cc in CC_UPPER and down:                        # deck A-D: Delay, Reverb
+            d, b = divmod(cc - CC_UPPER[0], 2)
+            self.press(K.GLOBAL_CH, K.FX_EFFECT[d][b])
+        elif cc in CC_LOWER and down:                        # deck A-D: Flanger, Filter on
+            d, b = divmod(cc - CC_LOWER[0], 2)
+            self.press(*((K.GLOBAL_CH, K.FX_EFFECT[d][2]) if b == 0 else (K.DECK_CH[d], K.FILTER_ON)))
         elif cc == CC_MASTER_ENC:
             up = value > 64
             if self.shift:
@@ -135,17 +161,16 @@ class QuadBridge(Bridge):
             self.encoder(cc - CC_ENC[0], value)
 
     def encoder(self, i, value):
-        if i < 4:                                            # jog: Traktor reads 7Fh/01h directly
-            self.to_traktor("cc", K.DECK_CH[i], K.JOG_CC, value)
+        d, k = divmod(i, 2)                                  # two knobs per deck: Filter, FX amount
+        if k == 0 and self.shift:                            # Shift + Filter knob = jog (7Fh/01h, read directly)
+            self.to_traktor("cc", K.DECK_CH[d], K.JOG_CC, value)
             return
-        unit, k = FX_KNOBS[i - 4]
-        if self.shift:                                       # Shift: knobs 2 and 3 of the unit
-            cc = K.FX_KNOB_CC[unit][1 + k]
+        if k == 0:
+            ch, cc, start = K.DECK_CH[d], K.DECK_FILTER_CC, 64.0     # centre = filter off
         else:
-            cc = K.FX_DRYWET_CC[unit] if k == 0 else K.FX_KNOB_CC[unit][0]
-        ch = K.GLOBAL_CH
+            ch, cc, start = K.GLOBAL_CH, K.FX_UNIT_DRYWET_CC[d], 0.0
         delta = value if value < 64 else value - 128
-        cur = self.enc_value.get((ch, cc), 0.0)
+        cur = self.enc_value.get((ch, cc), start)
         new = max(0.0, min(127.0, cur + delta))
         self.enc_value[(ch, cc)] = new
         if int(new) != int(cur):
@@ -194,17 +219,10 @@ class QuadBridge(Bridge):
                 if (row, col) in self.pressed:
                     v = p("white", "full")
                 out[("note", PAD0 + row * 8 + col)] = v
-        for d in range(4):
-            ch = K.DECK_CH[d]
-            for unit in range(2):
-                on = self.get(ch, K.FX2_ASSIGN if unit else K.FX1_ASSIGN) > 0
-                out[("cc", CC_LOWER[unit * 4 + d])] = p(FX_COLORS[unit], "full" if on else "dim")
-        for unit in range(2):
-            on = self.get(K.GLOBAL_CH, K.FX_ON[unit]) > 0
-            out[("cc", CC_UPPER[unit * 4])] = p(FX_COLORS[unit], "full" if on else "dim")
-            for b in range(3):
-                on_b = self.get(K.GLOBAL_CH, K.FX_BUTTON[unit][b]) > 0
-                out[("cc", CC_UPPER[unit * 4 + 1 + b])] = p(FX_COLORS[unit], "full" if on_b else "dim")
+        for d in range(4):                                   # FX buttons light in the deck's colour while on
+            on = [self.get(K.GLOBAL_CH, n) > 0 for n in K.FX_EFFECT[d]] + [self.get(K.DECK_CH[d], K.FILTER_ON) > 0]
+            for b, cc in enumerate((CC_UPPER[2 * d], CC_UPPER[2 * d + 1], CC_LOWER[2 * d], CC_LOWER[2 * d + 1])):
+                out[("cc", cc)] = p(DECK_COLORS[d], "full" if on[b] else "dim")
         out[("cc", CC_SHIFT)] = 127 if self.shift else 16
         return out
 
@@ -223,6 +241,55 @@ class QuadBridge(Bridge):
             else:
                 self.push_out.send(mido.Message("control_change", control=n, value=v))
 
+    # ---- Traktor -> bridge: remember when decks start, so a new title goes to the right one
+    def on_traktor(self, msg):
+        kind = "cc" if msg.type == "control_change" else "note"
+        n = msg.control if kind == "cc" else getattr(msg, "note", None)
+        before = self.state.get((msg.channel, kind, n)) if n is not None else None
+        super().on_traktor(msg)
+        if kind != "note" or msg.channel not in K.DECK_CH:
+            return
+        d = K.DECK_CH.index(msg.channel)
+        now = self.get(msg.channel, n)
+        if n == K.PLAY and now and not before:
+            self.started[d] = time.monotonic()
+        elif n in (K.DECK_LOADED, K.DECK_FLAVOR) and before is not None and now != before:
+            self.titles[d] = ""
+
+    def on_title(self, text):
+        """Traktor announced a track: give it to the deck that most recently started playing."""
+        with self.lock:
+            playing = [d for d in range(4) if self.get(K.DECK_CH[d], K.PLAY)]
+            if playing:
+                self.titles[max(playing, key=lambda d: self.started[d])] = text
+
+    def ensure_broadcast(self):
+        """Switch Traktor's broadcasting on once, so it sends track titles."""
+        if self.broadcast_asked or not self.state:
+            return
+        if not self.state_since:              # give Traktor's full state dump a moment to arrive
+            self.state_since = time.monotonic()
+        if time.monotonic() - self.state_since < 3:
+            return
+        self.broadcast_asked = True
+        if not self.get(K.GLOBAL_CH, K.BROADCAST):
+            self.tap(K.GLOBAL_CH, K.BROADCAST)
+
+    def ensure_fx(self):
+        """Once Traktor has answered: FX unit N on, in Group mode, and routed to deck N only."""
+        if self.fx_set or not self.state:
+            return
+        if not self.state_since:
+            self.state_since = time.monotonic()
+        if time.monotonic() - self.state_since < 3:
+            return
+        self.fx_set = True
+        for d, ch in enumerate(K.DECK_CH):
+            self.press(K.GLOBAL_CH, K.FX_UNIT_GROUP[d])
+            self.press(K.GLOBAL_CH, K.FX_UNIT_SET_ON[d])
+            for u in range(4):
+                self.press(ch, K.FX_UNIT_ASSIGN_ON[u] if u == d else K.FX_UNIT_ASSIGN_OFF[u])
+
     # ---- screen
     def display_view(self):
         """A snapshot of what the screen shows (push_display.render draws it)."""
@@ -230,10 +297,11 @@ class QuadBridge(Bridge):
         rgb = lambda name: COLORS[name]
         with self.lock:
             fx = []
-            for u in range(2):
-                fx.append({"color": rgb(FX_COLORS[u]), "on": self.get(K.GLOBAL_CH, K.FX_ON[u]) > 0,
-                           "buttons": [self.get(K.GLOBAL_CH, n) > 0 for n in K.FX_BUTTON[u]],
-                           "drywet": self.get(K.GLOBAL_CH, K.FX_DRYWET_CC[u], "cc") / 127})
+            for d, ch in enumerate(K.DECK_CH):
+                fx.append({"names": FX_NAMES, "on": [self.get(K.GLOBAL_CH, n) > 0 for n in K.FX_EFFECT[d]],
+                           "amount": self.get(K.GLOBAL_CH, K.FX_UNIT_DRYWET_CC[d], "cc") / 127,
+                           "filter_on": self.get(ch, K.FILTER_ON) > 0,
+                           "filter": centered(self.get(ch, K.DECK_FILTER_CC, "cc", default=None), 1.0)})
             decks = []
             for d, ch in enumerate(K.DECK_CH):
                 clock = self.clocks[d]
@@ -256,10 +324,28 @@ class QuadBridge(Bridge):
                     "stem_on": [not self.get(ch, K.SLOT_MUTE[s]) for s in range(4)],
                     "stem_vol": [self.get(ch, K.SLOT_VOLUME_CC[s], "cc", default=127) / 127 for s in range(4)],
                     "stem_colors": [rgb(c) for c in STEM_COLORS],
-                    "fx": [self.get(ch, K.FX1_ASSIGN) > 0, self.get(ch, K.FX2_ASSIGN) > 0]})
+                    "title": self.titles[d], "pitch": self.pitch(ch), "key": self.key_shift(ch),
+                    "phase": centered(self.get(ch, K.PHASE_CC, "cc", default=None), 0.5)})
+            masters = [i for i, dk in enumerate(decks) if dk["master"] and dk["playing"]]
+            for dk in decks:              # the phase meter only means something against a playing master
+                if not masters or dk["master"] or not dk["playing"]:
+                    dk["phase"] = None
         return {"now": now, "fx": fx, "decks": decks}
 
+    def pitch(self, ch):
+        adj = centered(self.get(ch, K.TEMPO_ADJ_CC, "cc", default=None), 1.0)
+        rng = self.get(ch, K.TEMPO_RANGE, default=None)
+        if adj is None or rng is None or rng >= len(K.TEMPO_RANGES):
+            return None
+        return adj * K.TEMPO_RANGES[rng]
+
+    def key_shift(self, ch):
+        adj = centered(self.get(ch, K.KEY_ADJ_CC, "cc", default=None), 1.0)
+        return None if adj is None else round(adj * 12)
+
     def run(self):
+        if not self.no_titles:
+            now_playing.NowPlaying(self.on_title).start()
         if not self.no_screen:
             if push_display:
                 push_display.Screen(self.display_view).start()
@@ -280,6 +366,9 @@ class QuadBridge(Bridge):
                 if self.push_out and self.resend and now >= self.resend[0]:
                     self.resend.pop(0)
                     self.setup()
+                if not self.no_titles:
+                    self.ensure_broadcast()
+                self.ensure_fx()
                 if not self.state and now - asked > 2:
                     self.press(K.GLOBAL_CH, K.SEND_STATE)
                     asked = now
@@ -297,9 +386,10 @@ def main():
     ap.add_argument("--monitor", action="store_true", help="print feedback from Traktor")
     ap.add_argument("--push", default=None, help="part of the Push port name to use")
     ap.add_argument("--no-screen", action="store_true", help="leave the Push 2 display alone")
+    ap.add_argument("--no-titles", action="store_true", help="don't receive track titles or switch broadcasting on")
     a = ap.parse_args()
     mido.set_backend("mido.backends.rtmidi")
-    QuadBridge(a.monitor, [a.push] if a.push else ["ableton push 2", "user"], a.no_screen).run()
+    QuadBridge(a.monitor, [a.push] if a.push else ["ableton push 2", "user"], a.no_screen, a.no_titles).run()
 
 
 if __name__ == "__main__":

@@ -50,12 +50,14 @@ mkdir -p "$DEST"
 [ -x "$DEST/venv/bin/python" ] || python3 -m venv "$DEST/venv"
 "$DEST/venv/bin/pip" install --quiet --upgrade pip
 "$DEST/venv/bin/pip" install --quiet -r "$REPO/requirements.txt"
-cp "$REPO/push_quad.py" "$REPO/push_bridge.py" "$REPO/push_display.py" "$REPO/contract.py" "$DEST/"
+cp "$REPO/push_quad.py" "$REPO/push_bridge.py" "$REPO/push_display.py" "$REPO/now_playing.py" "$REPO/contract.py" "$DEST/"
 
 echo "==> Building Traktor mappings"
 if "$DEST/venv/bin/python" "$REPO/build_tsi.py" && "$DEST/venv/bin/python" "$REPO/build_simple_tsi.py"; then
-  cp "$REPO/Push2 Bridge.tsi" "$REPO/Push2 Simple.tsi" "$HOME/Desktop/"
-  echo "    Copied Push2 Bridge.tsi and Push2 Simple.tsi to your Desktop"
+  OUT="$HOME/Desktop/Traktor & Push 2"
+  [ -d "$OUT" ] || OUT="$HOME/Desktop"
+  cp "$REPO/Push2 Bridge.tsi" "$REPO/Push2 Simple.tsi" "$OUT/"
+  echo "    Copied Push2 Bridge.tsi and Push2 Simple.tsi to $OUT"
 else
   echo "    Skipped: open Traktor Pro 4 once so its default settings exist, then run this again."
 fi
@@ -96,7 +98,7 @@ cat <<EOF
 
 Done. Next:
   1. Quit Ableton Live and plug in the Push 2.
-  2. Traktor > Preferences > Controller Manager > Import TSI > Push2 Bridge.tsi (Desktop).
+  2. Traktor > Preferences > Controller Manager > Import TSI > Push2 Bridge.tsi (on your Desktop, or in its "Traktor & Push 2" folder).
      In-Port and Out-Port must both be "Push2 Traktor Bridge".
      Updating? Delete the old "Push 2 Bridge (smart LEDs)" device first, then import the new file.
   3. Cheat sheet: $REPO/docs/cheatsheet.svg

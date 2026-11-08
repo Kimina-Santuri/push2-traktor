@@ -47,6 +47,8 @@ SLOT_MUTE = [50, 51, 52, 53]
 SLOT_FX = [54, 55, 56, 57]
 SLOT_STOP = [58, 59, 60, 61]
 SLOT_FILTER_ON = [70, 71, 72, 73]
+FX_UNIT_ASSIGN_ON = [74, 75, 76, 77]    # in: route this deck to FX unit 1-4 (the bridge gives deck A unit 1 ... D unit 4)
+FX_UNIT_ASSIGN_OFF = [78, 79, 80, 81]   # in: take this deck off FX unit 1-4
 REMIX_PAGE_DOWN = 66
 REMIX_PAGE_UP = 67
 
@@ -68,6 +70,11 @@ SLOT_FILTER_CC = [4, 5, 6, 7]
 DECK_FILTER_CC = 8
 JOG_CC = 9                          # relative 7Fh/01h, straight from a Push encoder
 SEEK_POS_CC = 10                    # feedback: play position 0-127 across the track (for the screen)
+TEMPO_ADJ_CC = 11                   # feedback: tempo fader, -1..1 -> 0-127 (pitch % = value x tempo range)
+PHASE_CC = 12                       # feedback: phase offset to the tempo master, -0.5..0.5 beat -> 0-127
+KEY_ADJ_CC = 13                     # feedback: key adjust, -1..1 -> 0-127
+TEMPO_RANGE = 103                   # feedback note: tempo range index (TEMPO_RANGES)
+TEMPO_RANGES = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 25, 35, 50, 100]   # percent
 
 # --- global channel -------------------------------------------------------
 FX_ON = [0, 4]                      # unit 1, unit 2
@@ -81,8 +88,15 @@ BROWSER_VIEW = 13
 SEND_STATE = 14                     # ask Traktor to resend every output
 FOCUS = [16, 17, 18, 19]            # focus deck A-D
 FOCUS_NOW = 20                      # feedback: focused deck 0-3
+BROADCAST = 21                      # in: switch broadcasting on (for track titles); out: on/off
+# per-deck FX (2026-11-02): FX unit N belongs to deck N, in Group mode, effects 1-3 = Delay, Reverb, Flanger
+# (picked once in Traktor; a mapping can't choose an effect reliably)
+FX_UNIT_SET_ON = [32, 33, 34, 35]   # in: unit 1-4 on
+FX_UNIT_GROUP = [36, 37, 38, 39]    # in: unit 1-4 to Group mode (three effects, one button each)
+FX_EFFECT = [[40, 41, 42], [43, 44, 45], [46, 47, 48], [49, 50, 51]]   # in/out: effect 1-3 on/off, unit 1-4
 FX_DRYWET_CC = [0, 4]
 FX_KNOB_CC = [[1, 2, 3], [5, 6, 7]]
+FX_UNIT_DRYWET_CC = [16, 17, 18, 19]  # unit 1-4 dry/wet
 
 # Remix cell note = slot * 16 + cell (slot 0-3, cell 0-15) on CELL_CH[deck]
 def cell_note(slot, cell):

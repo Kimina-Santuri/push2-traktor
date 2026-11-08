@@ -22,8 +22,9 @@ HEADER = bytes([0xFF, 0xCC, 0xAA, 0x88] + [0] * 12)
 MASK = np.tile(np.array([0xE7, 0xF3, 0xE7, 0xFF], dtype=np.uint8), LINE // 4)
 LIBUSB = ["/opt/homebrew/lib/libusb-1.0.0.dylib", "/usr/local/lib/libusb-1.0.0.dylib"]
 
-BG, PANEL, GRID, DIM, TEXT = (0, 0, 0), (18, 18, 22), (40, 40, 48), (90, 90, 100), (235, 235, 240)
-RED, AMBER = (255, 40, 40), (255, 170, 30)
+# Monochrome, black on white, so it reads in daylight and under club lights alike.
+PAPER, INK, GREY, LIGHT = (255, 255, 255), (0, 0, 0), (120, 120, 120), (205, 205, 205)
+CUE_NAMES = ["SONG", "BREAK", "DROP", "OUTRO"]     # the DJ edits' hot cues 1-4 (dj-tools, Push layout)
 
 
 def font(size, bold=False):
@@ -36,7 +37,8 @@ def font(size, bold=False):
     return ImageFont.load_default()
 
 
-F_BIG, F_MID, F_SMALL, F_TINY = font(38, True), font(16, True), font(13, True), font(11, True)
+F_LOOP, F_MID, F_SMALL, F_TINY = font(20, True), font(16, True), font(14, True), font(12, True)
+F_TITLE = font(13, True)
 
 
 def dim(c, k):
@@ -46,80 +48,106 @@ def dim(c, k):
 # ---------------------------------------------------------------- drawing
 def render(view):
     """An RGB image of the screen for `view` (see Bridge.display_view)."""
-    img = Image.new("RGB", (W, H), BG)
+    img = Image.new("RGB", (W, H), PAPER)
     g = ImageDraw.Draw(img)
-    # top strip: labels for the 8 buttons above the screen (FX1 on + 3 buttons, FX2 on + 3 buttons)
-    for u, fx in enumerate(view["fx"]):
-        for b in range(4):
-            x = (u * 4 + b) * 120
-            on = fx["on"] if b == 0 else fx["buttons"][b - 1]
-            label = ("FX%d  %d%%" % (u + 1, round(fx["drywet"] * 100))) if b == 0 else "%d" % b
-            cell(g, x, 0, label, fx["color"], on)
-    # bottom strip: the 8 buttons below the screen send decks A-D to FX1, then FX2
-    for i in range(8):
-        u, d = divmod(i, 4)
-        deck = view["decks"][d]
-        cell(g, i * 120, H - 20, "%s > FX%d" % (deck["name"], u + 1), view["fx"][u]["color"], deck["fx"][u])
+    # button strips: each deck's two buttons above the screen (Delay, Reverb) and two below (Flanger, Filter on)
+    for d, fx in enumerate(view["fx"]):
+        name = view["decks"][d]["name"]
+        cell(g, d * 240, 0, "%s %s" % (name, fx["names"][0]), fx["on"][0])
+        cell(g, d * 240 + 120, 0, "%s %s" % (name, fx["names"][1]), fx["on"][1])
+        cell(g, d * 240, H - 22, "%s %s" % (name, fx["names"][2]), fx["on"][2])
+        cell(g, d * 240 + 120, H - 22, "%s FILTER" % name, fx["filter_on"])
     for d, deck in enumerate(view["decks"]):
-        draw_deck(g, d * 240, 22, deck, view["now"])
+        if d:
+            g.line([d * 240, 24, d * 240, H - 25], fill=LIGHT, width=2)
+        draw_deck(g, d * 240, 24, deck, view["fx"][d], view["now"])
     return img
 
 
-def cell(g, x, y, text, color, on):
-    g.rectangle([x + 2, y + 2, x + 117, y + 17], fill=color if on else PANEL, outline=None if on else GRID)
-    g.text((x + 60, y + 10), text, font=F_TINY, fill=BG if on else DIM, anchor="mm")
+def fit(g, text, f, width):
+    """`text`, cut with an ellipsis to fit `width` pixels."""
+    if g.textlength(text, font=f) <= width:
+        return text
+    while text and g.textlength(text + "...", font=f) > width:
+        text = text[:-1]
+    return text.rstrip() + "..."
 
 
-def draw_deck(g, x, y, d, now):
-    color = d["color"]
-    g.rectangle([x + 2, y, x + 237, y + 115], fill=PANEL)
-    # header: deck letter in its colour, then MASTER / SYNC / KEY
-    g.rounded_rectangle([x + 8, y + 5, x + 34, y + 27], radius=4, fill=color if d["loaded"] else GRID)
-    g.text((x + 21, y + 16), d["name"], font=F_MID, fill=BG, anchor="mm")
-    bx = x + 42
-    for label, on in (("MASTER", d["master"]), ("SYNC", d["sync"]), ("KEY", d["keylock"])):
+def box(g, xy, text, f, on, dim=False):
+    """A labelled box: solid black with white text when on, outlined when off (grey when `dim`)."""
+    x0, y0, x1, y1 = xy
+    if on:
+        g.rectangle(xy, fill=INK)
+    else:
+        g.rectangle(xy, outline=LIGHT if dim else INK, width=1 if dim else 2)
+    g.text(((x0 + x1) / 2, (y0 + y1) / 2 + 1), text, font=f, fill=PAPER if on else (GREY if dim else INK), anchor="mm")
+
+
+def cell(g, x, y, text, on):
+    box(g, (x + 3, y + 2, x + 116, y + 19), text, F_SMALL, on)
+
+
+def draw_deck(g, x, y, d, fx, now):
+    # header: deck letter, MASTER / SYNC / KEY, then the BPM (small)
+    box(g, (x + 8, y + 2, x + 30, y + 22), d["name"], F_MID, d["loaded"], dim=not d["loaded"])
+    bx = x + 36
+    for label, on in (("MST", d["master"]), ("SYNC", d["sync"]), ("KEY", d["keylock"])):
         w = g.textlength(label, font=F_TINY) + 10
-        g.rounded_rectangle([bx, y + 9, bx + w, y + 24], radius=3, fill=AMBER if on else None,
-                            outline=None if on else GRID)
-        g.text((bx + w / 2, y + 17), label, font=F_TINY, fill=BG if on else DIM, anchor="mm")
-        bx += w + 5
-    if not d["loaded"]:
-        g.text((x + 120, y + 62), "empty", font=F_MID, fill=DIM, anchor="mm")
-        return
-    # BPM, live while playing, dimmed when stopped
+        box(g, (bx, y + 5, bx + w, y + 20), label, F_TINY, on, dim=not on)
+        bx += w + 4
     bpm = d["bpm"]
-    g.text((x + 10, y + 52), "%.1f" % bpm if bpm else "---.-", font=F_BIG,
-           fill=TEXT if d["playing"] and bpm else DIM, anchor="lm")
-    g.text((x + 150, y + 60), "BPM", font=F_TINY, fill=DIM, anchor="lm")
-    # loop: size, lit while looping
-    if d["loop"]:
-        g.text((x + 228, y + 44), "LOOP " + d["loop"], font=F_SMALL, fill=AMBER if d["in_loop"] else DIM,
-               anchor="rm")
-    # position bar; red while the end warning is on
-    pos = d["pos"]
-    g.rectangle([x + 10, y + 76, x + 229, y + 81], fill=GRID)
-    if pos is not None:
-        end = d["ending"] and (now % 0.5) < 0.25
-        g.rectangle([x + 10, y + 76, x + 10 + int(219 * pos), y + 81], fill=RED if end else color)
-    # hotcues 1-4 (the Push's cue pads) and the beat in the bar
-    for c, t in enumerate(d["cues"]):
-        cx = x + 10 + c * 20
-        if t:
-            g.rectangle([cx, y + 88, cx + 14, y + 100], fill=t)
-        else:
-            g.rectangle([cx, y + 88, cx + 14, y + 100], outline=GRID)
-    for b in range(4):
-        bxx = x + 160 + b * 18
-        lit = d["playing"] and d["beat"] % 4 == b
-        g.ellipse([bxx, y + 89, bxx + 11, y + 100], fill=color if lit else GRID)
-    # stems: a bar per stem, height = volume, dark when muted
+    g.text((x + 232, y + 13), "%.1f" % bpm if bpm else "---.-", font=F_SMALL,
+           fill=INK if d["playing"] and bpm else GREY, anchor="rm")
+    if not d["loaded"]:
+        g.text((x + 120, y + 60), "empty", font=F_MID, fill=GREY, anchor="mm")
+        return
+    # title (from Traktor's broadcast tags), cut to fit, then pitch % and key shift
+    bits = []
+    if d["pitch"] is not None:
+        bits.append("%+.1f%%" % d["pitch"])
+    if d["key"]:
+        bits.append("K%+d" % d["key"])
+    bits = " ".join(bits)
+    room = 224 - (g.textlength(bits, font=F_TINY) + 8 if bits else 0)
+    if d["title"]:
+        g.text((x + 8, y + 33), fit(g, d["title"], F_TITLE, room), font=F_TITLE, fill=INK, anchor="lm")
+    if bits:
+        g.text((x + 232, y + 33), bits, font=F_TINY, fill=INK, anchor="rm")
+    # loop size, big; solid while the loop is on. Then stems, then the two knobs: FX amount and filter.
+    box(g, (x + 8, y + 43, x + 90, y + 67), ("LOOP " + d["loop"]) if d["loop"] else "LOOP", F_LOOP, d["in_loop"],
+        dim=not d["loop"])
     if d["stems"]:
         for s in range(4):
-            sx = x + 92 + s * 16
-            g.rectangle([sx, y + 86, sx + 11, y + 102], outline=GRID)
+            sx = x + 98 + s * 13
+            g.rectangle([sx, y + 43, sx + 9, y + 67], outline=INK)
             if d["stem_on"][s]:
-                h = int(15 * d["stem_vol"][s])
-                g.rectangle([sx + 1, y + 101 - h, sx + 10, y + 101], fill=d["stem_colors"][s])
+                h = int(23 * d["stem_vol"][s])
+                g.rectangle([sx, y + 67 - h, sx + 9, y + 67], fill=INK)
+    g.text((x + 232, y + 49), "FX %d%%" % round(fx["amount"] * 100), font=F_SMALL,
+           fill=INK if any(fx["on"]) else GREY, anchor="rm")
+    flt = fx["filter"]
+    label = "FLT --" if flt is None or abs(flt) < 0.02 else ("LP %d" if flt < 0 else "HP %d") % round(abs(flt) * 100)
+    g.text((x + 232, y + 63), label, font=F_SMALL, fill=INK if fx["filter_on"] else GREY, anchor="rm")
+    # hot cues 1-4 (the Push's cue pads), named, solid when set
+    for c, t in enumerate(d["cues"]):
+        cx = x + 8 + c * 56
+        box(g, (cx, y + 72, cx + 52, y + 94), CUE_NAMES[c], F_TINY, bool(t), dim=not t)
+    # position bar; flashes inverted while the end warning is on
+    pos = d["pos"]
+    end = d["ending"] and (now % 0.5) < 0.25
+    g.rectangle([x + 8, y + 99, x + 232, y + 105], fill=INK if end else None, outline=INK)
+    if pos is not None:
+        g.rectangle([x + 8, y + 99, x + 8 + int(224 * pos), y + 105], fill=PAPER if end else INK)
+    # phase meter against the master (centred = in phase), then the beat in the bar
+    g.line([x + 88, y + 108, x + 88, y + 113], fill=GREY)
+    g.rectangle([x + 8, y + 109, x + 168, y + 112], outline=LIGHT)
+    if d["phase"] is not None:
+        cx = x + 88 + int(d["phase"] * 158)
+        g.rectangle([cx - 7, y + 107, cx + 7, y + 114], fill=INK)
+    for b in range(4):
+        bxx = x + 178 + b * 14
+        lit = d["playing"] and d["beat"] % 4 == b
+        g.rectangle([bxx, y + 107, bxx + 9, y + 114], fill=INK if lit else None, outline=INK if lit else LIGHT)
 
 
 # ---------------------------------------------------------------- USB
